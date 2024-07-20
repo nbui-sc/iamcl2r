@@ -1,0 +1,7 @@
+root_folder: ./data
+method: er
+
+eval_only: true
+checkpoint_path: ./models_ckpts/clr_er_7tasks-er-cifar_clr/run-20240719-0059
+ntasks_eval: 7
+number_training_classes: 100
