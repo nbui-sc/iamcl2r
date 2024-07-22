@@ -11,111 +11,9 @@ import torch.optim as optim
 from iamcl2r.utils import AverageMeter, log_epoch, l2_norm
 from iamcl2r.utils import save_checkpoint
 
-from .utils import accuracy
+from .utils import accuracy, retrieval_acc
 
 logger = logging.getLogger(__name__)
-
-
-def validate(args, device, net, loader, criterion_cls, target_transform=None):
-    classification_loss_meter = AverageMeter()
-    classification_acc_meter = AverageMeter()
-    
-    net.eval()
-    with torch.no_grad():
-        for bid, batchdata in enumerate(loader):
-        
-            inputs = batchdata[0].to(device, non_blocking=True) 
-            targets = batchdata[1].to(device, non_blocking=True) 
-            if args.fixed:
-                # transform targets to write for the end of the interface vector
-                targets = target_transform(targets)
-
-            with torch.autocast(device_type='cuda', dtype=torch.float16, enabled=args.amp):
-                output = net(inputs)
-                assert torch.all(targets >= 0) and torch.all(targets <= output["logits"].size(1))
-
-                loss = criterion_cls(output["logits"], targets)
-
-            classification_acc = accuracy(output["logits"], targets, topk=(1,))
-            
-            classification_loss_meter.update(loss.item(), inputs.size(0))
-            classification_acc_meter.update(classification_acc[0].item(), inputs.size(0))
-
-    log_epoch(loss=classification_loss_meter.avg, acc=classification_acc_meter.avg, validation=True)
-
-    classification_acc = classification_acc_meter.avg
-
-    return classification_acc
-
-
-def train_one_epoch(
-    args,
-    net, 
-    previous_net, 
-    train_loader, 
-    scaler,
-    optimizer,
-    scheduler_lr,
-    epoch, 
-    reps_criterion,
-    alignment_criterion,
-    device, 
-    task_id, 
-    target_transform=None,
-):
-    start = time.time()
-    
-    acc_meter = AverageMeter()
-    loss_meter = AverageMeter()
-
-    net.train()
-    for bid, batchdata in enumerate(train_loader):
-        
-        inputs = batchdata[0].to(device, non_blocking=True) 
-        targets = batchdata[1].to(device, non_blocking=True)  
-
-        if args.fixed:
-            assert target_transform is not None, "target_transform is None"
-            # transform targets to write for the end of the feature vector
-            targets = target_transform(targets)
-                
-        optimizer.zero_grad()
-
-        with torch.autocast(device_type='cuda', dtype=torch.float16, enabled=args.amp):
-            if len(inputs.size()) == 5:
-                b, n, c, h, w = inputs.size()
-                inputs = inputs.view(-1, c, h, w)
-            output = net(inputs)
-            loss = reps_criterion(output["logits"], targets)
-        
-            if previous_net is not None and alignment_criterion is not None:
-                with torch.no_grad():
-                    feature_old = previous_net(inputs)["features"]
-
-                loss_feat = alignment_criterion(output["features"], feature_old, targets)
-                loss = loss * args.lambda_ + (1 - args.lambda_) * loss_feat
-        
-        # loss.backward()
-        # optimizer.step()
-        scaler.scale(loss).backward()
-        scaler.step(optimizer)
-        scaler.update()
-
-        loss_meter.update(loss.item(), inputs.size(0))
-
-        acc_training = accuracy(output["logits"], targets, topk=(1,))
-        acc_meter.update(acc_training[0].item(), inputs.size(0))
-    
-    # log after epoch
-    if args.is_main_process:
-        wandb.log({'train/epoch': epoch})
-        wandb.log({'train/train_loss': loss_meter.avg})
-        wandb.log({'train/train_acc': acc_meter.avg})
-        wandb.log({'train/lr': optimizer.param_groups[0]['lr']})
-
-    end = time.time()
-    logger.info(f"Learning rate: {optimizer.param_groups[0]['lr']}")
-    log_epoch(args.epochs, loss_meter.avg, acc_meter.avg, epoch=epoch, task=task_id, time=end-start)
 
 
 def train_one_epoch_clr(
@@ -174,7 +72,7 @@ def train_one_epoch_clr(
 
         loss_meter.update(loss.item(), inputs.size(0))
 
-        acc_training = accuracy(output["logits"], targets, topk=(1,))
+        acc_training = accuracy(output["logits"], labels, topk=(1,))
         acc_meter.update(acc_training[0].item(), inputs.size(0))
     
     # log after epoch
@@ -189,7 +87,7 @@ def train_one_epoch_clr(
     log_epoch(args.epochs, loss_meter.avg, acc_meter.avg, epoch=epoch, task=task_id, time=end-start)
 
 
-def train_and_align(
+def train_and_align_clr(
     args,
     net,
     previous_net,
@@ -239,7 +137,7 @@ def train_and_align(
     init_epoch = 0
     for epoch in range(init_epoch, args.epochs):
         args.current_epoch = epoch
-        train_one_epoch(args=args,
+        train_one_epoch_clr(args=args,
                         net=net,
                         previous_net=previous_net,
                         train_loader=train_loader,
@@ -256,12 +154,7 @@ def train_and_align(
         scheduler_lr.step()
 
         if (epoch + 1) % args.eval_period == 0 or (epoch + 1) == args.epochs:
-            acc_val = validate(args,
-                               device,
-                               net,
-                               val_loader,
-                               criterion_cls,
-                               target_transform=target_transform)
+            acc_val = retrieval_acc(args, device, net, previous_net, val_loader, val_loader, n_backward_steps=0)
             if args.is_main_process:
                 wandb.log({'val/val_acc': acc_val}) 
                                 

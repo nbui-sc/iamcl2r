@@ -59,17 +59,18 @@ class SimCLRLoss(nn.Module):
         super(SimCLRLoss, self).__init__()
         self.temperature = temperature
         self.device = device
+        self.criterion = nn.CrossEntropyLoss().to(device)
 
     def forward(self, 
-                feat_new, 
-                feat_old, 
-                labels, 
+                features, 
+                targets, 
+                batch_size,
+                n_views,
                ):
-        loss = self._loss(feat_old, feat_new, labels)
-        return loss
+        logits, labels = self.info_nce_loss(features, targets, batch_size, n_views)
+        return self.criterion(logits, labels)
 
-    @staticmethod
-    def info_nce_loss(features, targets, batch_size, n_views):
+    def info_nce_loss(self, features, targets, batch_size, n_views):
         labels = torch.stack([torch.arange(batch_size) for _ in range(n_views)], dim=1).view(-1)
         labels = (labels.unsqueeze(0) == labels.unsqueeze(1)).float()
         labels = labels.to(self.device)
@@ -98,7 +99,7 @@ class SimCLRLoss(nn.Module):
         negatives = similarity_matrix[~labels.bool()].view(similarity_matrix.shape[0], -1)
 
         logits = torch.cat([positives, negatives], dim=1)
-        labels = torch.zeros(logits.shape[0], dtype=torch.long).to(device)
+        labels = torch.zeros(logits.shape[0], dtype=torch.long).to(self.device)
 
         logits = logits / self.temperature
         # print(logits.shape, labels.shape)
