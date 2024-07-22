@@ -218,10 +218,11 @@ def main():
                     scheduler_lr.step()
 
                 if (epoch + 1) % args.eval_period == 0 or (epoch + 1) == args.epochs:
-                    acc_val = retrieval(
+                    acc_val = retrieval_acc(
                         args, 
                         device,
                         net, 
+                        previous_net,
                         val_loader, 
                         val_loader,
                     )

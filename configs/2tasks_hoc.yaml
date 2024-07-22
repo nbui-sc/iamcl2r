@@ -13,3 +13,10 @@ replace_ids:
 
 increment: 50
 initial_increment: 50
+
+# for hoc
+fixed: true
+preallocated_classes: 1024
+mu_: 10
+lambda_: 0.1
+# epochs: 3

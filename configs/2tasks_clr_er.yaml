@@ -1,0 +1,16 @@
+root_folder: ./data
+method: clr_er
+
+# iamcl2r settings
+pretrained_model_path: 
+- ./pretrained_models_ckpts/learnable/ckpt_0.pt
+- ./pretrained_models_ckpts/learnable/ckpt_2.pt
+pretrained_backbones: 
+- resnet18
+- resnet18
+replace_ids: 
+- 1
+
+train_dataset_name: 'cifar_clr'
+increment: 50
+initial_increment: 50

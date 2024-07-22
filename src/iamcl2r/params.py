@@ -18,7 +18,7 @@ class ExperimentParams():
     # methods settings
     fixed: bool = False
     preallocated_classes: int = -1
-    create_old_model: bool = False
+    create_old_model: bool = True
 
     # iamcl2r settings
     pretrained_model_path: List[str] = field(default_factory=lambda: [])
@@ -48,11 +48,13 @@ class ExperimentParams():
     momentum: float = 0.9
     min_lr: float = 0.00001
     weight_decay: float = 0.0005
-    temperature: float = 0.07
     eval_period: int = 5
     save_period: int = 70
     grad_clip: float = 0.01
     save_best: bool = False  # if false save last, if true save best based on classification accuracy
+
+    # for simclr loss
+    simclr_temperature: float = 0.07
 
     # reproducibility settings
     seed: int = 42

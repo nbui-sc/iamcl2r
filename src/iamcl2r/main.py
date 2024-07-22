@@ -1,20 +1,26 @@
-import os, argparse, yaml, wandb, datetime, logging, random
+import os
+import argparse
+import yaml
+import wandb
+import datetime
+import logging
+import random
 import numpy as np
 import os.path as osp
 import torch
-import torch.distributed as dist
-import torch.nn as nn
-import torch.optim as optim
 from torch.utils.data import DataLoader
+
+from iamcl2r.methods import get_training_method
 
 from iamcl2r.params import ExperimentParams
 from iamcl2r.logger import setup_logger
-from iamcl2r.methods import set_method_configs, HocLoss
 from iamcl2r.dataset import create_data_and_transforms, BalancedBatchSampler
 from iamcl2r.models import create_model
-from iamcl2r.utils import check_params, save_checkpoint, init_distributed_device, is_master, broadcast_object
-from iamcl2r.train import train_one_epoch, validate
+from iamcl2r.utils import check_params, init_distributed_device, is_master, broadcast_object
 from iamcl2r.eval import evaluate
+
+
+logger = logging.getLogger(__name__)
 
 
 def main():
@@ -70,8 +76,6 @@ def main():
         logger = logging.getLogger('IAM-CL2R-Eval')
         run.tags = run.tags + ("eval",)
  
-    set_method_configs(args, name=args.method)
-    
     # reproducibility
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
@@ -81,8 +85,6 @@ def main():
 
     args.replace_ids += [0]    
     args.replace_ids.sort()     
-    
-    set_method_configs(args, name=args.method)
     
     check_params(args)
 
@@ -95,21 +97,19 @@ def main():
     
     args.classes_at_task = []
     args.new_data_ids_at_task = []
-    args.seen_indices = []
+    args.seen_classes = []
 
     if not args.eval_only:
+        logger.info(f"Prepare training with method {args.method}")
+        train_fn = get_training_method(args.method)
 
+        logger.info(f"Creating data and transformations")
         data = create_data_and_transforms(args)
         scenario_train = data["scenario_train"]
         scenario_val = data["scenario_val"]
         memory = data["memory"]
         target_transform = data["target_transform"]
 
-        add_loss = None
-        if args.method == "hoc":
-            add_loss = HocLoss(mu_=args.mu_)
-
-        best_acc = 0
         logger.info(f"Starting Training")
 
         for task_id, (train_task_set, _) in enumerate(zip(scenario_train, scenario_val)):
@@ -153,6 +153,7 @@ def main():
                                     batch_size=batch_size, shuffle=False,
                                     drop_last=False, num_workers=args.num_workers)
 
+            logger.info("Creating model")
             previous_net = None
             if args.create_old_model:
                 previous_net = create_model(args,
@@ -174,94 +175,20 @@ def main():
                               )
             logger.info(f"Created model from {resume_path}")
 
-            exclude = lambda n, p: p.ndim < 2 or "bn" in n or "ln" in n or "bias" in n or 'logit_scale' in n
-            include = lambda n, p: not exclude(n, p)
-            named_parameters = list(net.named_parameters())
-
-            gain_or_bias_params = [p for n, p in named_parameters if exclude(n, p) and p.requires_grad]
-            rest_params = [p for n, p in named_parameters if include(n, p) and p.requires_grad]
-            optimizer = optim.SGD(
-                                [
-                                    {"params": gain_or_bias_params, "weight_decay": 0.},
-                                    {"params": rest_params, "weight_decay": args.weight_decay},
-                                ],
-                                lr=args.lr, 
-                                momentum=args.momentum, 
-                                )
-
-            # backbone_params = [p for n, p in named_parameters if "backbone" in n and p.requires_grad]
-            # rest_params = [p for n, p in named_parameters if "backbone" not in n and p.requires_grad]
-            
-            # optimizer = optim.Adam(
-            #                     [
-            #                         {"params": backbone_params, "lr": args.backbone_lr},
-            #                         {"params": rest_params,},
-            #                     ],
-            #                     lr=args.lr, 
-            #                     weight_decay=args.weight_decay,
-            #                     )
-
-            scaler = torch.cuda.amp.GradScaler(enabled=args.amp)
-            scheduler_lr = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs, eta_min=args.min_lr)
-            # scheduler_lr = optim.lr_scheduler.OneCycleLR(optimizer, max_lr=args.lr, epochs=args.epochs, steps_per_epoch=len(train_loader))
-            criterion_cls = nn.CrossEntropyLoss().to(device)
-                
-            best_acc = 0
-            logger.info(f"Starting Epoch Loop at task {task_id+1}/{scenario_train.nb_tasks}")
-            init_epoch = 0
-            for epoch in range(init_epoch, args.epochs):
-                args.current_epoch = epoch
-                train_one_epoch(args, 
-                                device,
-                                net, 
-                                previous_net,
-                                train_loader,
-                                scaler,
-                                optimizer,
-                                scheduler_lr,
-                                epoch, 
-                                criterion_cls, 
-                                task_id, 
-                                add_loss, 
-                                target_transform=target_transform,
-                                grad_clip=args.grad_clip,
-                                )
-                scheduler_lr.step()
-
-                if (epoch + 1) % args.eval_period == 0 or (epoch + 1) == args.epochs:
-                    acc_val = validate(args,
-                                       device,
-                                       net,
-                                       val_loader,
-                                       criterion_cls,
-                                       target_transform=target_transform)
-                    if args.is_main_process:
-                        wandb.log({'val/val_acc': acc_val}) 
-                                        
-                    if (acc_val >= best_acc and args.save_best) or ((epoch + 1) == args.epochs and not args.save_best):
-                        best_acc = acc_val
-                        if args.is_main_process:
-                            wandb.log({'val/best_acc': best_acc}) 
-                            save_checkpoint(args, net, 
-                                            optimizer, best_acc, scheduler_lr, backup=False)
-
-                if ((epoch + 1) % args.save_period == 0 or (epoch + 1) == args.epochs) and args.is_main_process:
-                    save_checkpoint(args, net, 
-                                    optimizer, best_acc, scheduler_lr, backup=True)
-                
-            ## after training in current task
-            if args.rehearsal > 0:
-                memory.add(*scenario_train[task_id].get_raw_samples(), z=None)
-                # args.seen_classes = torch.tensor(list(memory.seen_classes), device=device)
-                if args.is_main_process:
-                    # save the memory after new data is added
-                    memory.save(path=osp.join(args.checkpoint_path, "memory.npz"))   
-                    logger.info(f"Memory saved in {osp.join(args.checkpoint_path, 'memory.npz')}")
-                    save_checkpoint(args, net, optimizer, 
-                                    best_acc, scheduler_lr, backup=True)
-    
-            if args.distributed:
-                dist.barrier()
+            logger.info(f"Starting Training at task {task_id+1}/{scenario_train.nb_tasks}")
+            train_fn(
+                args=args,
+                net=net,
+                previous_net=previous_net,
+                train_loader=train_loader,
+                val_loader=val_loader,
+                scenario_train=scenario_train,
+                memory=memory,
+                task_id=task_id,
+                device=device,
+                target_transform=target_transform,
+            )
+            args.seen_classes = torch.tensor(list(memory.seen_classes), device=device)
             
     if not args.train_only:
         logger.info(f"Starting Evaluation")

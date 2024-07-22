@@ -7,6 +7,7 @@ import faiss
 import torch
 
 import logging
+
 logger = logging.getLogger('Performance-Metrics')
 
 
