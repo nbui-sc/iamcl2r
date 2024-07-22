@@ -1,4 +1,5 @@
 venv/
+notebooks/checkpoint.pth.tar
 
 *.egg-info/
 __pycache__/
