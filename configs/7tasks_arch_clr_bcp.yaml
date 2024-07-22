@@ -1,0 +1,28 @@
+root_folder: ./data
+method: clr_bcp
+
+# iamcl2r settings
+pretrained_model_path: 
+- torchvision_pretrained
+- torchvision_pretrained
+- torchvision_pretrained
+pretrained_backbones:
+- resnet18_torchvision
+- resnet50_torchvision
+- resnet101_torchvision
+replace_ids: 
+- 2
+- 4
+# training settings
+scenario: 'class-incremental'
+increment: 15
+train_dataset_name: 'cifar_clr'
+batch_size: 512
+lr: 0.003
+momentum: 0.9
+min_lr: 0.00001
+weight_decay: 0.0005
+epochs: 100
+bc_lr: 0.03
+bc_epochs: 100
+rehearsal: 20

@@ -24,7 +24,8 @@ class ExperimentParams():
     pretrained_model_path: List[str] = field(default_factory=lambda: [])
     pretrained_backbones: List[str] = field(default_factory=lambda: [])
     replace_ids: List[int] = field(default_factory=lambda: [])
-    feat_size: int = 2048
+    feat_size: int = 512
+    input_size: int = 32
     use_embedding_layer: bool = False
     use_subsampled_dataset: bool = True
     img_per_class: int = 300
@@ -33,15 +34,16 @@ class ExperimentParams():
     # training settings
     amp: bool = True
     train_only: bool = False
-    epochs: int = 70
+    epochs: int = 120
     batch_size: int = 128
     num_workers: int = 8
     initial_increment: int = 10
     increment: int = 15
     rehearsal: int = 20
+    backbone_lr: float = 0.00001
     lr: float = 0.001
     bc_lr: float = 0.0001
-    bc_epochs: int = 70
+    bc_epochs: int = 120
     bc_loss_type: str = 'mse'
     momentum: float = 0.9
     min_lr: float = 0.00001
@@ -49,6 +51,7 @@ class ExperimentParams():
     temperature: float = 0.07
     eval_period: int = 5
     save_period: int = 70
+    grad_clip: float = 0.01
     save_best: bool = False  # if false save last, if true save best based on classification accuracy
 
     # reproducibility settings

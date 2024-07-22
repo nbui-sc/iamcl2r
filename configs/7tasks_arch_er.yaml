@@ -1,0 +1,18 @@
+root_folder: ./data
+method: er
+
+# iamcl2r settings
+pretrained_model_path: 
+- torchvision_pretrained
+- torchvision_pretrained
+- torchvision_pretrained
+pretrained_backbones:
+- resnet18_torchvision
+- resnet50_torchvision
+- resnet101_torchvision
+replace_ids: 
+- 2
+- 4
+
+# training settings
+increment: 15

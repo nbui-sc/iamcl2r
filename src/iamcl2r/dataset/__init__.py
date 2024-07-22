@@ -50,6 +50,7 @@ def create_data_and_transforms(args, mode="train", return_dict=True):
         data_kwargs = {"path": args.data_path,
                        "use_subsampled_dataset": args.use_subsampled_dataset,
                        "img_per_class": args.img_per_class,
+                       "input_size": args.input_size,
                       }
         data = getattr(module, class_name)(**data_kwargs)
         args.train_transform = data["train_transform"]
@@ -77,6 +78,7 @@ def create_data_and_transforms(args, mode="train", return_dict=True):
                                                  nb_tasks=args.nb_tasks,
                                                  transformations=data["train_transform"]) 
             args.num_classes = scenario_train.nb_classes
+            args.nb_tasks_evaluation = scenario_train.nb_tasks 
 
             logger.info(f"\n\nTraining with {args.nb_tasks} tasks.")
 

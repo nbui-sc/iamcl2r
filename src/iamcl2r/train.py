@@ -1,6 +1,8 @@
 import numpy as np
 import torch
 import torch.nn.functional as F
+import logging
+from torch import nn
 
 import time
 import wandb
@@ -10,6 +12,8 @@ from iamcl2r.models import extract_features
 from iamcl2r.performance_metrics import identification
 from iamcl2r.utils import AverageMeter, log_epoch, l2_norm
 
+logger = logging.getLogger(__name__)
+
 
 def train_one_epoch(args,
                     device, 
@@ -18,11 +22,13 @@ def train_one_epoch(args,
                     train_loader, 
                     scaler,
                     optimizer,
+                    scheduler_lr,
                     epoch, 
                     criterion_cls, 
                     task_id, 
                     add_loss,
-                    target_transform=None
+                    target_transform=None,
+                    grad_clip=None,
                    ):
     start = time.time()
     
@@ -44,6 +50,7 @@ def train_one_epoch(args,
 
         with torch.autocast(device_type='cuda', dtype=torch.float16, enabled=args.amp):
             output = net(inputs)
+            print(output["logits"].shape, targets.shape)
             loss = criterion_cls(output["logits"], targets)
         
             if previous_net is not None:
@@ -54,6 +61,7 @@ def train_one_epoch(args,
                     norm_feature_new = l2_norm(output["features"])
                     loss_feat = add_loss(norm_feature_new, norm_feature_old, targets)
                     # Eq. 3 in the paper
+                    print(loss, loss_feat)
                     loss = loss * args.lambda_ + (1 - args.lambda_) * loss_feat
                 else:
                     raise NotImplementedError(f"Method {args.method} not implemented")
@@ -63,6 +71,7 @@ def train_one_epoch(args,
         scaler.scale(loss).backward()
         scaler.step(optimizer)
         scaler.update()
+        scheduler_lr.step()
 
         loss_meter.update(loss.item(), inputs.size(0))
 
@@ -77,6 +86,7 @@ def train_one_epoch(args,
         wandb.log({'train/lr': optimizer.param_groups[0]['lr']})
 
     end = time.time()
+    logger.info(f"Learning rate: {optimizer.param_groups[0]['lr']}")
     log_epoch(args.epochs, loss_meter.avg, acc_meter.avg, epoch=epoch, task=task_id, time=end-start)
 
 
@@ -97,7 +107,7 @@ def accuracy(output, target, topk=(1,)):
         return res
     
 
-def classification(args, device, net, loader, criterion_cls, target_transform=None):
+def validate(args, device, net, loader, criterion_cls, target_transform=None):
     classification_loss_meter = AverageMeter()
     classification_acc_meter = AverageMeter()
     
@@ -122,7 +132,7 @@ def classification(args, device, net, loader, criterion_cls, target_transform=No
             classification_loss_meter.update(loss.item(), inputs.size(0))
             classification_acc_meter.update(classification_acc[0].item(), inputs.size(0))
 
-    log_epoch(loss=classification_loss_meter.avg, acc=classification_acc_meter.avg, classification=True)
+    log_epoch(loss=classification_loss_meter.avg, acc=classification_acc_meter.avg, validation=True)
 
     classification_acc = classification_acc_meter.avg
 

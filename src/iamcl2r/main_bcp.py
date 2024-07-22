@@ -2,6 +2,7 @@ import os, argparse, yaml, wandb, datetime, logging, random
 import numpy as np
 import os.path as osp
 import torch
+import wandb
 import torch.distributed as dist
 import torch.nn as nn
 import torch.optim as optim
@@ -13,7 +14,7 @@ from iamcl2r.methods import set_method_configs, HocLoss, BCPLoss
 from iamcl2r.dataset import create_data_and_transforms, BalancedBatchSampler
 from iamcl2r.models import create_model
 from iamcl2r.utils import check_params, save_checkpoint, init_distributed_device, is_master, broadcast_object
-from iamcl2r.train import train_one_epoch, classification, train_one_clr_epoch, retrieval_acc, train_one_bcp_epoch
+from iamcl2r.train import train_one_epoch, train_one_clr_epoch, retrieval_acc, train_one_bcp_epoch
 from iamcl2r.eval import evaluate
 
 
@@ -26,6 +27,8 @@ def main():
                         type=str)
     params = parser.parse_args()
     base_config_name = osp.splitext(osp.basename(params.config_path))[0]
+    if 'debug' in base_config_name:
+        wandb.init(mode="disabled")
 
     with open(params.config_path, 'r') as stream:
         loaded_params = yaml.safe_load(stream)
@@ -46,7 +49,7 @@ def main():
 
     if not args.eval_only:
         checkpoint_path = osp.join(*(args.output_folder, 
-                                     f"{base_config_name}-{args.method}-{args.train_dataset_name}",
+                                     f"{base_config_name}",
                                      f"run-{datetime.datetime.now().strftime('%Y%m%d-%H%M')}"
                                     )
                                   )
@@ -294,7 +297,7 @@ def main():
                         n_backward_steps=1,
                     )
                     if args.is_main_process:
-                        wandb.log({'bc_val/bc_val_acc': acc_val}) 
+                        wandb.log({'bcval/bc_val_acc': acc_val}) 
                                         
                     if (acc_val >= best_acc and args.save_best) or ((epoch + 1) == args.epochs and not args.save_best):
                         best_acc = acc_val

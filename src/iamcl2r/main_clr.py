@@ -13,7 +13,7 @@ from iamcl2r.methods import set_method_configs, HocLoss
 from iamcl2r.dataset import create_data_and_transforms, BalancedBatchSampler
 from iamcl2r.models import create_model
 from iamcl2r.utils import check_params, save_checkpoint, init_distributed_device, is_master, broadcast_object
-from iamcl2r.train import train_one_epoch, classification, train_one_clr_epoch, retrieval
+from iamcl2r.train import train_one_epoch, train_one_clr_epoch, retrieval_acc
 from iamcl2r.eval import evaluate
 
 
@@ -46,7 +46,7 @@ def main():
 
     if not args.eval_only:
         checkpoint_path = osp.join(*(args.output_folder, 
-                                     f"{base_config_name}-{args.method}-{args.train_dataset_name}",
+                                     f"{base_config_name}",
                                      f"run-{datetime.datetime.now().strftime('%Y%m%d-%H%M')}"
                                     )
                                   )

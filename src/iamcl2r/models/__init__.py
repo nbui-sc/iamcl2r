@@ -18,6 +18,7 @@ logger = logging.getLogger('Model')
 __BACKBONE_OUT_DIM = {
     'resnet18': 512,
     'resnet18_torchvision': 512,
+    'resnet34_torchvision': 512,
     'resnet50_torchvision': 2048,
     'resnet101_torchvision': 2048,
     'senet18': 512,
@@ -84,14 +85,29 @@ class Incremental_ResNet(nn.Module):
             self.backbone = tvmodels.resnet18(pretrained=pretrained)
             self.out_dim = self.backbone.fc.in_features
             self.backbone.fc = nn.Identity()
+            # because pretrained ResNet from torchvision is intended for Imagenet with input size (224, 224)
+            # https://stackoverflow.com/questions/63015883/pytorch-based-resnet18-achieves-low-accuracy-on-cifar100
+            self.backbone.conv1 = nn.Conv2d(3, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+            self.backbone.maxpool = nn.Identity()
+        elif backbone == 'resnet34_torchvision':
+            self.backbone = tvmodels.resnet34(pretrained=pretrained)
+            self.out_dim = self.backbone.fc.in_features
+            logger.info("out_dim: {}".format(self.out_dim))
+            self.backbone.fc = nn.Identity()
+            self.backbone.conv1 = nn.Conv2d(3, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+            self.backbone.maxpool = nn.Identity()
         elif backbone == 'resnet50_torchvision':
             self.backbone = tvmodels.resnet50(pretrained=pretrained)
             self.out_dim = self.backbone.fc.in_features
             self.backbone.fc = nn.Identity()
+            self.backbone.conv1 = nn.Conv2d(3, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+            self.backbone.maxpool = nn.Identity()
         elif backbone == 'resnet101_torchvision':
             self.backbone = tvmodels.resnet101(pretrained=pretrained)
             self.out_dim = self.backbone.fc.in_features
             self.backbone.fc = nn.Identity()
+            self.backbone.conv1 = nn.Conv2d(3, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+            self.backbone.maxpool = nn.Identity()
         else:
             raise ValueError('Backbone not supported: {}'.format(backbone))
 
@@ -121,6 +137,9 @@ class Incremental_ResNet(nn.Module):
 
         else:
             return x, y, z
+
+    def bc_forward(self, x, return_dict=True, n_backward_steps=0):
+        return self.forward(x, return_dict=return_dict)
     
     def expand_classifier(self, new_classes):
         old_classes = self.fc2.weight.data.shape[0]
@@ -164,6 +183,7 @@ class BC_Incremental_ResNet(Incremental_ResNet):
         new_bc_proj = nn.Linear(self.feat_size, self.feat_size, bias=True)
         if require_grad:
             new_bc_proj.weight.requires_grad = True
+            torch.nn.init.xavier_uniform_(new_bc_proj.weight)
         self.bc_projs.insert(0, new_bc_proj)
         
 
@@ -200,11 +220,10 @@ def create_model(args,
         backbone = new_pretrained_dict['args'].current_backbone
         num_classes = new_pretrained_dict['net']['fc2.weight'].shape[0]
 
+    if args.fixed:
+        feat_size = args.preallocated_classes - 1
     if feat_size is None and not args.use_embedding_layer:
-        if args.fixed:
-            feat_size = args.preallocated_classes - 1
-        else:
-            feat_size = get_backbone_feat_size(backbone)
+        feat_size = get_backbone_feat_size(backbone)
         args.feat_size = feat_size
     elif args.use_embedding_layer:
         assert args.feat_size is not None, "feat_size must be set in configs when using embedding layer"

@@ -1,0 +1,28 @@
+root_folder: ./data
+method: er
+
+# iamcl2r settings
+pretrained_model_path: 
+- torchvision_pretrained
+- torchvision_pretrained
+pretrained_backbones:
+- resnet34_torchvision
+- resnet50_torchvision
+replace_ids: 
+- 1
+
+# training settings
+increment: 1
+initial_increment: 99
+# scenario: 'class-incremental'
+# batch_size: 256
+# backbone_lr: 0.00005
+# lr: 0.0001
+# momentum: 0.9
+# min_lr: 0.00001
+# weight_decay: 0.0005
+# epochs: 100
+# bc_lr: 0.03
+# bc_epochs: 100
+# rehearsal: 20
+

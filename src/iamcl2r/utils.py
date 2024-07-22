@@ -35,15 +35,15 @@ class AverageMeter(object):
         self.avg = self.sum / self.count
 
 
-def log_epoch(n_epochs=None, loss=None, acc=None, epoch=None, task=None, time=None, lr=None, classification=False):
+def log_epoch(n_epochs=None, loss=None, acc=None, epoch=None, task=None, time=None, lr=None, validation=False):
     acc_str = f"Task {task + 1}" if task is not None else f""
     acc_str += f" Epoch [{epoch + 1}]/[{n_epochs}]" if epoch is not None else f""
     acc_str += f"\t Training Loss: {loss:.4f}" if loss is not None else f""
     acc_str += f"\t Training Accuracy: {acc:.2f}" if acc is not None else f""
     acc_str += f"\t LR: {lr:.6f}" if lr is not None else f""
     acc_str += f"\t Time: {time:.2f}" if time is not None else f""
-    if classification:
-        acc_str = acc_str.replace("Training", "Classification")   
+    if validation:
+        acc_str = acc_str.replace("Training", "Validation")   
     logger.info(acc_str)
 
 

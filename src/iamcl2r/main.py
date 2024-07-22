@@ -13,7 +13,7 @@ from iamcl2r.methods import set_method_configs, HocLoss
 from iamcl2r.dataset import create_data_and_transforms, BalancedBatchSampler
 from iamcl2r.models import create_model
 from iamcl2r.utils import check_params, save_checkpoint, init_distributed_device, is_master, broadcast_object
-from iamcl2r.train import train_one_epoch, classification
+from iamcl2r.train import train_one_epoch, validate
 from iamcl2r.eval import evaluate
 
 
@@ -43,10 +43,11 @@ def main():
     if not osp.exists(args.data_path) and args.is_main_process:
         os.makedirs(args.data_path)
 
+    base_config_name = osp.splitext(osp.basename(params.config_path))[0]
     if not args.eval_only:
         checkpoint_path = osp.join(*(args.output_folder, 
-                                     f"{datetime.datetime.now().strftime('%Y%m%d')}",
-                                     f"{args.method}-{args.train_dataset_name}-{datetime.datetime.now().strftime('%H%M%S')}"
+                                     f"{base_config_name}",
+                                     f"run-{datetime.datetime.now().strftime('%Y%m%d-%H%M')}"
                                     )
                                   )
         if args.distributed:
@@ -94,7 +95,7 @@ def main():
     
     args.classes_at_task = []
     args.new_data_ids_at_task = []
-    args.seen_classes = []
+    args.seen_indices = []
 
     if not args.eval_only:
 
@@ -116,6 +117,7 @@ def main():
             
             if task_id in args.replace_ids:
                 resume_path = args.pretrained_model_path[args.replace_ids.index(task_id)]
+                args.current_backbone = args.pretrained_backbones[args.replace_ids.index(task_id)]
             else:
                 resume_path = osp.join(*(args.checkpoint_path, f"ckpt_{task_id-1}.pt"))
             
@@ -128,48 +130,11 @@ def main():
             
             logger.info(f"Task {task_id+1} new classes in task: {new_data_ids}")
 
-            previous_net = None
-            if args.create_old_model:
-                previous_net = create_model(args,
-                                            device=device,
-                                            resume_path=resume_path, 
-                                            new_classes=0   # not expanding classifier for old model
-                                        )
-                # set false to require grad for all parameters
-                for param in previous_net.parameters():
-                    param.requires_grad = False
-                previous_net.eval() 
-            
-            net = create_model(args, 
-                               device=device,
-                               resume_path=resume_path
-                              )
-            logger.info(f"Created model from {resume_path}")
-
-            exclude = lambda n, p: p.ndim < 2 or "bn" in n or "ln" in n or "bias" in n or 'logit_scale' in n
-            include = lambda n, p: not exclude(n, p)
-            named_parameters = list(net.named_parameters())
-            gain_or_bias_params = [p for n, p in named_parameters if exclude(n, p) and p.requires_grad]
-            rest_params = [p for n, p in named_parameters if include(n, p) and p.requires_grad]
-            
-            optimizer = optim.SGD(
-                                [
-                                    {"params": gain_or_bias_params, "weight_decay": 0.},
-                                    {"params": rest_params, "weight_decay": args.weight_decay},
-                                ],
-                                lr=args.lr, 
-                                momentum=args.momentum, 
-                                )
-            scaler = torch.cuda.amp.GradScaler(enabled=args.amp)
-            scheduler_lr = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs, eta_min=args.min_lr)
-            criterion_cls = nn.CrossEntropyLoss().to(device)
-
             batchsampler = None
             batch_size = args.batch_size
-            if task_id > 0: 
-                if args.rehearsal > 0:
-                    mem_x, mem_y, mem_t = memory.get()
-                    train_task_set.add_samples(mem_x, mem_y, mem_t)
+            if task_id > 0 and args.rehearsal > 0 and args.scenario == "class-incremental": 
+                mem_x, mem_y, mem_t = memory.get()
+                train_task_set.add_samples(mem_x, mem_y, mem_t)
                 batchsampler = BalancedBatchSampler(train_task_set, n_classes=train_task_set.nb_classes, 
                                                     batch_size=args.batch_size, n_samples=len(train_task_set._x), 
                                                     seen_classes=args.seen_classes, rehearsal=args.rehearsal)
@@ -187,6 +152,59 @@ def main():
             val_loader = DataLoader(val_dataset, 
                                     batch_size=batch_size, shuffle=False,
                                     drop_last=False, num_workers=args.num_workers)
+
+            previous_net = None
+            if args.create_old_model:
+                previous_net = create_model(args,
+                                            device=device,
+                                            resume_path=resume_path, 
+                                            new_classes=0,   # not expanding classifier for old model
+                                            feat_size=args.feat_size,
+                                            backbone=args.current_backbone,
+                                        )
+                # set false to require grad for all parameters
+                for param in previous_net.parameters():
+                    param.requires_grad = False
+                previous_net.eval() 
+            
+            net = create_model(args, 
+                               device=device,
+                               resume_path=resume_path,
+                               feat_size=args.feat_size,
+                              )
+            logger.info(f"Created model from {resume_path}")
+
+            exclude = lambda n, p: p.ndim < 2 or "bn" in n or "ln" in n or "bias" in n or 'logit_scale' in n
+            include = lambda n, p: not exclude(n, p)
+            named_parameters = list(net.named_parameters())
+
+            gain_or_bias_params = [p for n, p in named_parameters if exclude(n, p) and p.requires_grad]
+            rest_params = [p for n, p in named_parameters if include(n, p) and p.requires_grad]
+            optimizer = optim.SGD(
+                                [
+                                    {"params": gain_or_bias_params, "weight_decay": 0.},
+                                    {"params": rest_params, "weight_decay": args.weight_decay},
+                                ],
+                                lr=args.lr, 
+                                momentum=args.momentum, 
+                                )
+
+            # backbone_params = [p for n, p in named_parameters if "backbone" in n and p.requires_grad]
+            # rest_params = [p for n, p in named_parameters if "backbone" not in n and p.requires_grad]
+            
+            # optimizer = optim.Adam(
+            #                     [
+            #                         {"params": backbone_params, "lr": args.backbone_lr},
+            #                         {"params": rest_params,},
+            #                     ],
+            #                     lr=args.lr, 
+            #                     weight_decay=args.weight_decay,
+            #                     )
+
+            scaler = torch.cuda.amp.GradScaler(enabled=args.amp)
+            scheduler_lr = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs, eta_min=args.min_lr)
+            # scheduler_lr = optim.lr_scheduler.OneCycleLR(optimizer, max_lr=args.lr, epochs=args.epochs, steps_per_epoch=len(train_loader))
+            criterion_cls = nn.CrossEntropyLoss().to(device)
                 
             best_acc = 0
             logger.info(f"Starting Epoch Loop at task {task_id+1}/{scenario_train.nb_tasks}")
@@ -199,23 +217,24 @@ def main():
                                 previous_net,
                                 train_loader,
                                 scaler,
-                                optimizer, 
+                                optimizer,
+                                scheduler_lr,
                                 epoch, 
                                 criterion_cls, 
                                 task_id, 
                                 add_loss, 
-                                target_transform=target_transform
+                                target_transform=target_transform,
+                                grad_clip=args.grad_clip,
                                 )
                 scheduler_lr.step()
 
                 if (epoch + 1) % args.eval_period == 0 or (epoch + 1) == args.epochs:
-                    acc_val = classification(args, 
-                                             device,
-                                             net, 
-                                             val_loader, 
-                                             criterion_cls,
-                                             target_transform=target_transform
-                                            )
+                    acc_val = validate(args,
+                                       device,
+                                       net,
+                                       val_loader,
+                                       criterion_cls,
+                                       target_transform=target_transform)
                     if args.is_main_process:
                         wandb.log({'val/val_acc': acc_val}) 
                                         
@@ -233,7 +252,7 @@ def main():
             ## after training in current task
             if args.rehearsal > 0:
                 memory.add(*scenario_train[task_id].get_raw_samples(), z=None)
-                args.seen_classes = torch.tensor(list(memory.seen_classes), device=device)
+                # args.seen_classes = torch.tensor(list(memory.seen_classes), device=device)
                 if args.is_main_process:
                     # save the memory after new data is added
                     memory.save(path=osp.join(args.checkpoint_path, "memory.npz"))   
