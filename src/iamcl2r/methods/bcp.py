@@ -23,20 +23,25 @@ def CLRBCPconfigs():
 
 
 class BCPLoss(nn.Module):
-    def __init__(self, mu_, loss_type='nce'):
+    def __init__(self, mu_, loss_type='nce', prev_proj_weights=None):
         super(BCPLoss, self).__init__()
         self.loss_type = loss_type
         self.mu_ = mu_
+        self.prev_proj_weights = prev_proj_weights
     
     def forward(self, 
                 feat_new, 
                 feat_old, 
-                labels, 
+                labels,
                ):
         if self.loss_type == 'nce':
             loss = self.nce_loss(feat_new, feat_old, labels)
-        elif self.loss_type == 'mse':
+        elif self.loss_type == 'single-step-mse':
             loss = self.mse_loss(feat_new, feat_old)
+        elif self.loss_type == 'multi-step-mse':
+            loss = self.multi_step_mse_loss(feat_new, feat_old)
+        else:
+            raise ValueError(f"Loss type {self.loss_type} not supported.")
         return loss
 
     def mse_loss(self, feat_new, feat_old):
@@ -55,7 +60,16 @@ class BCPLoss(nn.Module):
         Returns:
             Mean loss over the mini-batch.
         """
-        return torch.nn.functional.mse_loss(feat_new, feat_old)
+        return nn.functional.mse_loss(feat_new, feat_old)
+
+    def multi_step_mse_loss(self, feat_new, feat_old):
+        """Calculates Joint MSE loss.
+        """
+        feat_diff = feat_new - feat_old
+        loss = torch.mean(feat_diff**2)
+        for w in self.prev_proj_weights:
+            loss += torch.mean(nn.functional.linear(feat_diff, w)**2)
+        return loss
 
     def nce_loss(self, feat_new, feat_old, labels):
         """Calculates infoNCE loss.
@@ -74,6 +88,8 @@ class BCPLoss(nn.Module):
         Returns:
             Mean loss over the mini-batch.
         """
+        feat_new = nn.functional.normalize(feat_new, p=2, dim=1)
+        feat_old = nn.functional.normalize(feat_old, p=2, dim=1)
         ## create diagonal mask that only selects similarities between
         ## representations of the same images
         batch_size = feat_old.shape[0]

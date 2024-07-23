@@ -1,5 +1,5 @@
 root_folder: ./data
-method: clr_er
+method: hoc
 
 # iamcl2r settings
 pretrained_model_path: 

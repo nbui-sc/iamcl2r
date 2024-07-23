@@ -5,6 +5,7 @@ from iamcl2r.methods.bcp import BCPLoss
 
 __factory = {
     'er':           'iamcl2r.methods.er.ERconfigs',
+    'clr_er':           'iamcl2r.methods.er.ERconfigs',
     'hoc':          'iamcl2r.methods.hoc.HOCconfigs',
     'clr_hoc':          'iamcl2r.methods.hoc.CLRHOCconfigs',
     'clr_bcp':          'iamcl2r.methods.bcp.CLRBCPconfigs',

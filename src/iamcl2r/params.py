@@ -45,6 +45,7 @@ class ExperimentParams():
     bc_lr: float = 0.0001
     bc_epochs: int = 120
     bc_loss_type: str = 'mse'
+    proj_type: str = 'linear'
     momentum: float = 0.9
     min_lr: float = 0.00001
     weight_decay: float = 0.0005
@@ -52,7 +53,7 @@ class ExperimentParams():
     eval_period: int = 5
     save_period: int = 70
     grad_clip: float = 0.01
-    save_best: bool = False  # if false save last, if true save best based on classification accuracy
+    save_best: bool = True # if false save last, if true save best based on classification accuracy
 
     # reproducibility settings
     seed: int = 42

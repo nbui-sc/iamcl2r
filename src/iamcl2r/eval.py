@@ -11,7 +11,7 @@ import logging
 logger = logging.getLogger('Eval')
 
 
-def evaluate(args, device, query_loader, gallery_loader, ntasks_eval=None):
+def evaluate(args, device, query_loader, gallery_loader, ntasks_eval=None, bc=False):
 
     if ntasks_eval is None: 
         ntasks_eval = args.ntasks_eval
@@ -20,9 +20,13 @@ def evaluate(args, device, query_loader, gallery_loader, ntasks_eval=None):
     gallery_targets = gallery_loader.dataset.targets
 
     for task_id in range(ntasks_eval):
-        ckpt_path = osp.join(*(args.checkpoint_path, f"ckpt_{task_id}.pt")) 
+        ckpt_name = f"ckpt_{task_id}_aligned.pt" if bc else f"ckpt_{task_id}.pt"
+        ckpt_path = osp.join(*(args.checkpoint_path, ckpt_name))
         if not osp.exists(ckpt_path):
-            raise FileNotFoundError(f"Checkpoint {ckpt_path} does not exist. All the checkpoints need to have the format 'ckpt_<id>.pt' where id is the task id.")
+            if bc and not osp.exists(ckpt_path.replace("_aligned", "")):
+                raise FileNotFoundError(f"Checkpoint {ckpt_path} does not exist. All the checkpoints need to have the format 'ckpt_<id>.pt' where id is the task id.")
+            else:
+                ckpt_path = ckpt_path.replace("_aligned", "")
         net = create_model(args,
                            device,
                            resume_path=ckpt_path, 
@@ -34,12 +38,15 @@ def evaluate(args, device, query_loader, gallery_loader, ntasks_eval=None):
                           )
         net.eval() 
 
-        query_feat = extract_features(args, device, net, query_loader)
-
         for i in range(task_id+1):
-            ckpt_path = osp.join(*(args.checkpoint_path, f"ckpt_{i}.pt")) 
+            ckpt_name = f"ckpt_{i}_aligned.pt" if bc else f"ckpt_{i}.pt"
+            ckpt_path = osp.join(*(args.checkpoint_path, ckpt_name))
             if not osp.exists(ckpt_path):
-                raise FileNotFoundError(f"Checkpoint {ckpt_path} does not exist. All the checkpoints need to have the format 'ckpt_<id>.pt' where id is the task id.")
+                if bc and not osp.exists(ckpt_path.replace("_aligned", "")):
+                    raise FileNotFoundError(f"Checkpoint {ckpt_path} does not exist. All the checkpoints need to have the format 'ckpt_<id>.pt' where id is the task id.")
+                else:
+                    ckpt_path = ckpt_path.replace("_aligned", "")
+                # raise FileNotFoundError(f"Checkpoint {ckpt_path} does not exist. All the checkpoints need to have the format 'ckpt_<id>.pt' where id is the task id.")
             previous_net = create_model(args,
                                         device,
                                         resume_path=ckpt_path, 
@@ -51,7 +58,8 @@ def evaluate(args, device, query_loader, gallery_loader, ntasks_eval=None):
                                         )
             previous_net.eval() 
             
-            gallery_feat = extract_features(args, device, previous_net, gallery_loader, n_backward_steps=task_id-i)
+            query_feat = extract_features(args, device, net, query_loader, n_backward_steps=task_id-i)
+            gallery_feat = extract_features(args, device, previous_net, gallery_loader)
 
             acc = identification(gallery_feat, gallery_targets, 
                                  query_feat, targets, 

@@ -62,6 +62,7 @@ def save_checkpoint(args,
                     best_acc, 
                     scheduler_lr, 
                     backup=False, 
+                    bc=False,
                     ):
     """ Save checkpoint. 
         If backup is True, the checkpoint is saved in the backup folder.
@@ -83,7 +84,11 @@ def save_checkpoint(args,
             'best_acc': best_acc,
             'scheduler_lr': scheduler_lr.state_dict() if scheduler_lr is not None else None,
            }
-    ckpt_path = osp.join(args.checkpoint_path, f"{f'ckpt_{args.current_task_id}' if not backup else 'backup'}.pt")
+    ckpt_name = f"{f'ckpt_{args.current_task_id}' if not backup else 'backup'}"
+    if bc:
+        ckpt_name += "_aligned"
+    ckpt_name += ".pt"
+    ckpt_path = osp.join(args.checkpoint_path, ckpt_name)
     logger.info(f"Saving checkpoint in {ckpt_path}")
     torch.save(ckpt, ckpt_path)
 

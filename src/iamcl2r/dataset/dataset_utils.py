@@ -56,7 +56,6 @@ class BalancedBatchSampler(BatchSampler):
                 self.indices.append(index)
             else:
                 self.seen_indices.append(index)
-        logger.info(f"Indices: {self.indices}")
 
     def __iter__(self):
         for _ in range(self.n_batches):

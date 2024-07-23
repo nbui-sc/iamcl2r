@@ -4,6 +4,7 @@ import torch.nn as nn
 from collections import OrderedDict
 
 import torchvision.models as tvmodels
+from torch.nn import functional as F
 
 from iamcl2r.utils import l2_norm
 from iamcl2r.models.resnet import resnet18, resnet50
@@ -68,6 +69,7 @@ class Incremental_ResNet(nn.Module):
         
         super(Incremental_ResNet, self).__init__()
         self.feat_size = feat_size
+        self.backbone_name = backbone
         
         if backbone == 'resnet18':
             self.backbone = resnet18()
@@ -148,6 +150,31 @@ class Incremental_ResNet(nn.Module):
         self.fc2.weight.data[:old_classes] = old_weight
 
 
+class MlpProjector(nn.Module):
+    def __init__(self, in_features, out_features, hidden_size, bias=False, dropout=0.1):
+        super(MlpProjector, self).__init__()
+        self.fc1 = nn.Linear(in_features, hidden_size, bias=bias)
+        self.fc2 = nn.Linear(hidden_size, hidden_size, bias=bias)
+        self.fc3 = nn.Linear(hidden_size, out_features, bias=bias)
+        self.dropout = nn.Dropout(dropout)
+
+    def forward(self, x):
+        output = self.dropout(F.relu(self.fc1(x)))
+        output = self.dropout(F.relu(self.fc2(output)))
+        output = F.relu(self.fc3(output))
+        return output
+
+    def set_requires_grad(self, requires_grad):
+        for param in self.parameters():
+            param.requires_grad = requires_grad
+
+    def init_weights(self):
+        for m in self.modules():
+            if isinstance(m, nn.Linear):
+                nn.init.xavier_uniform_(m.weight)
+                if m.bias is not None:
+                    nn.init.constant_(m.bias, 0)
+
 class BC_Incremental_ResNet(Incremental_ResNet):
     def __init__(self, 
                  num_classes=100, 
@@ -155,14 +182,15 @@ class BC_Incremental_ResNet(Incremental_ResNet):
                  backbone='resnet18', 
                  pretrained=False,
                  n_backward_vers=0,
-                 version=0
+                 version=0,
+                 proj_type='linear',
                 ):
         super(BC_Incremental_ResNet, self).__init__(num_classes, feat_size, backbone, pretrained)
         self.n_backward_vers = n_backward_vers
         self.version = version
-        self.bc_projs = nn.ModuleList([
-            nn.Linear(self.feat_size, self.feat_size, bias=False) for _ in range(n_backward_vers)
-        ])
+        self.bc_projs = nn.ModuleList()
+        for i in range(n_backward_vers):
+            self.add_bc_projection(require_grad=True, proj_type=proj_type)
 
     def bc_forward(self, x, return_dict=True, n_backward_steps=0):
         assert n_backward_steps <= len(self.bc_projs), f"n_backward_steps {n_backward_steps} must be less than or equal to the number of projections {len(self.bc_projs)}"
@@ -179,11 +207,19 @@ class BC_Incremental_ResNet(Incremental_ResNet):
         else:
             return x, y, z
 
-    def add_bc_projection(self, require_grad=True):
-        new_bc_proj = nn.Linear(self.feat_size, self.feat_size, bias=True)
-        if require_grad:
-            new_bc_proj.weight.requires_grad = True
-            torch.nn.init.xavier_uniform_(new_bc_proj.weight)
+    def add_bc_projection(self, require_grad=True, proj_type='linear'):
+        if proj_type == 'mlp':
+            new_bc_proj = MlpProjector(self.feat_size, self.feat_size, self.feat_size)
+            if require_grad:
+                new_bc_proj.set_requires_grad(True)
+                new_bc_proj.init_weights()
+        elif proj_type == 'linear':
+            new_bc_proj = nn.Linear(self.feat_size, self.feat_size, bias=False)
+            if require_grad:
+                new_bc_proj.weight.requires_grad = True
+                torch.nn.init.xavier_uniform_(new_bc_proj.weight)
+        else:
+            raise ValueError(f"Projection type {proj_type} not supported")
         self.bc_projs.insert(0, new_bc_proj)
         
 
@@ -211,7 +247,7 @@ def create_model(args,
                  new_classes=None,
                  n_backward_vers=None,
                  **kwargs):
-    if backbone is None:
+    if backbone is None and args.current_backbone is not None:
         backbone = args.current_backbone
     elif backbone == 'from_ckpt':
         if resume_path in [None, '', 'torchvision_pretrained']:
@@ -219,6 +255,9 @@ def create_model(args,
         new_pretrained_dict = torch.load(resume_path, map_location='cpu')
         backbone = new_pretrained_dict['args'].current_backbone
         num_classes = new_pretrained_dict['net']['fc2.weight'].shape[0]
+
+    if backbone is None:
+        backbone = 'resnet18'
 
     if args.fixed:
         feat_size = args.preallocated_classes - 1
@@ -253,6 +292,7 @@ def create_model(args,
         model_cfg = {
             **model_cfg,
             'n_backward_vers': n_backward_vers,
+            'proj_type': args.proj_type,
         }
         model = BC_Incremental_ResNet(**model_cfg)
     else:

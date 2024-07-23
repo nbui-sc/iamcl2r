@@ -45,11 +45,7 @@ def main():
         os.makedirs(args.data_path)
 
     if not args.eval_only:
-        checkpoint_path = osp.join(*(args.output_folder, 
-                                     f"{base_config_name}",
-                                     f"run-{datetime.datetime.now().strftime('%Y%m%d-%H%M')}"
-                                    )
-                                  )
+        checkpoint_path = osp.join(*(args.output_folder, f"{base_config_name}"))
         if args.distributed:
             checkpoint_path = broadcast_object(args, checkpoint_path)
         args.checkpoint_path = checkpoint_path
@@ -218,12 +214,13 @@ def main():
                     scheduler_lr.step()
 
                 if (epoch + 1) % args.eval_period == 0 or (epoch + 1) == args.epochs:
-                    acc_val = retrieval(
-                        args, 
-                        device,
-                        net, 
-                        val_loader, 
-                        val_loader,
+                    acc_val = retrieval_acc(
+                        args=args, 
+                        device=device,
+                        net=net, 
+                        previous_net=net,
+                        query_loader=val_loader,
+                        gallery_loader=val_loader,
                     )
                     if args.is_main_process:
                         wandb.log({'val/val_acc': acc_val}) 

@@ -1,0 +1,27 @@
+root_folder: ./data
+method: clr_bcp
+
+# iamcl2r settings
+pretrained_model_path: 
+- pretrained_models_ckpts/learnable/ckpt_0.pt
+- pretrained_models_ckpts/learnable/ckpt_2.pt
+pretrained_backbones:
+- resnet18
+- resnet18
+replace_ids: 
+- 1
+
+# training settings
+scenario: 'class-incremental'
+increment: 50
+initial_increment: 50
+train_dataset_name: 'cifar_clr'
+batch_size: 512
+lr: 0.003
+momentum: 0.9
+min_lr: 0.00001
+weight_decay: 0.0005
+epochs: 5
+bc_lr: 0.03
+bc_epochs: 100
+rehearsal: 1000
