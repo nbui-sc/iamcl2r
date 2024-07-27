@@ -5,6 +5,8 @@ from torchvision import transforms
 from continuum import ClassIncremental, InstanceIncremental
 from continuum.rehearsal import RehearsalMemory
 
+from .scenarios import NoContinualLearning
+
 from iamcl2r.dataset.dataset_utils import *
 
 
@@ -57,6 +59,7 @@ def create_data_and_transforms(args, mode="train", return_dict=True):
 
         if args.scenario == 'class-incremental':
             # create task-sets for sequential fine-tuning learning
+            assert args.initial_increment is not None and args.increment is not None, "Please provide the initial increment and the increment for the class-incremental scenario."
             scenario_train = ClassIncremental(data["dataset_train"],
                                               initial_increment=args.initial_increment,
                                               increment=args.increment,
@@ -74,17 +77,29 @@ def create_data_and_transforms(args, mode="train", return_dict=True):
                                             transformations=data["val_transform"]
                                             ) 
         elif args.scenario == 'instance-incremental':
+            assert args.nb_tasks is not None, "Please provide the number of tasks for the instance-incremental scenario."
             scenario_train = InstanceIncremental(data["dataset_train"],
                                                  nb_tasks=args.nb_tasks,
-                                                 transformations=data["train_transform"]) 
+                                                 transformations=data["train_transform"])
             args.num_classes = scenario_train.nb_classes
-            args.nb_tasks_evaluation = scenario_train.nb_tasks 
+            args.nb_tasks_evaluation = scenario_train.nb_tasks
 
             logger.info(f"\n\nTraining with {args.nb_tasks} tasks.")
 
             scenario_val = InstanceIncremental(data["dataset_val"],
                                                nb_tasks=args.nb_tasks,
-                                               transformations=data["val_transform"]) 
+                                               transformations=data["val_transform"])
+        elif args.scenario == 'none':
+            assert args.nb_tasks is not None, "Please provide the number of tasks for none continual learning."
+            scenario_train = NoContinualLearning(data["dataset_train"],
+                                                 nb_tasks=args.nb_tasks,
+                                                 transformations=data["train_transform"])
+            args.num_classes = scenario_train.nb_classes
+            args.nb_tasks_evaluation = scenario_train.nb_tasks
+
+            scenario_val = NoContinualLearning(data["dataset_val"],
+                                               nb_tasks=args.nb_tasks,
+                                               transformations=data["val_transform"])
         else:
             raise ValueError(f"Unknown scenario: {args.scenario}")
 
@@ -96,13 +111,30 @@ def create_data_and_transforms(args, mode="train", return_dict=True):
                                  fixed_memory=True,
                                  nb_total_classes=args.num_classes
                                 )
+
+        
+        args.classes_at_task = []
+        args.new_data_ids_at_task = []
+        for task_id in range(args.nb_tasks):
+            train_task_set = scenario_train[task_id]
+
+            new_data_ids = train_task_set.get_classes()
+
+            class_in_step = (
+                scenario_train[:task_id].nb_classes + len(new_data_ids)
+                if task_id > 0
+                else train_task_set.nb_classes
+            )
+            args.classes_at_task.append(class_in_step)
+            args.new_data_ids_at_task.append(new_data_ids)
         
         if return_dict:
-            return {"scenario_train": scenario_train, 
-                    "scenario_val": scenario_val, 
+            return {"scenario_train": scenario_train,
+                    "scenario_val": scenario_val,
                     "memory": memory, 
                     "target_transform": target_transform
                     }
+
         return scenario_train, scenario_val, memory, target_transform
 
     else:        

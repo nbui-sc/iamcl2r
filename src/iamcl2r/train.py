@@ -50,7 +50,6 @@ def train_one_epoch(args,
 
         with torch.autocast(device_type='cuda', dtype=torch.float16, enabled=args.amp):
             output = net(inputs)
-            print(output["logits"].shape, targets.shape)
             loss = criterion_cls(output["logits"], targets)
         
             if previous_net is not None:
@@ -61,7 +60,6 @@ def train_one_epoch(args,
                     norm_feature_new = l2_norm(output["features"])
                     loss_feat = add_loss(norm_feature_new, norm_feature_old, targets)
                     # Eq. 3 in the paper
-                    print(loss, loss_feat)
                     loss = loss * args.lambda_ + (1 - args.lambda_) * loss_feat
                 else:
                     raise NotImplementedError(f"Method {args.method} not implemented")
@@ -185,87 +183,22 @@ def info_nce_loss(
     return logits, labels
 
 
-def train_one_clr_epoch(
-    args,
-    device,
-    net,
-    previous_net,
-    train_loader,
-    scaler,
-    optimizer,
-    epoch,
-    criterion_cls,
-    task_id,
-    add_loss,
-    target_transform=None
-):
-    start = time.time()
+# def train_one_clr_epoch(
+#     args,
+#     device,
+#     net,
+#     previous_net,
+#     train_loader,
+#     scaler,
+#     optimizer,
+#     epoch,
+#     criterion_cls,
+#     task_id,
+#     add_loss,
+#     target_transform=None
+# ):
 
-    acc_meter = AverageMeter()
-    loss_meter = AverageMeter()
-
-    net.train()
-    for bid, batchdata in enumerate(train_loader):
-        
-        inputs = batchdata[0].to(device, non_blocking=True) 
-        batch_size, n_views, c, h, w = inputs.size()
-
-        targets = batchdata[1].to(device, non_blocking=True)  
-        targets = torch.stack([targets for _ in range(n_views)], dim=1).view(-1)
-
-        if args.fixed:
-            assert target_transform is not None, "target_transform is None"
-            # transform targets to write for the end of the feature vector
-            targets = target_transform(targets)
-                
-        optimizer.zero_grad()
-
-        with torch.autocast(device_type='cuda', dtype=torch.float16, enabled=args.amp):
-            inputs = inputs.view(-1, c, h, w)
-            # two positive pairs will be near each other in the batch (i and i+1)
-            output = net(inputs)
-            logits, labels = info_nce_loss(output["features"], targets, batch_size, n_views, args.temperature, device)
-
-            loss = criterion_cls(logits, labels)
-        
-            if previous_net is not None:
-                with torch.no_grad():
-                    feature_old = previous_net(inputs)["features"]
-                if 'hoc' in args.method:
-                    assert add_loss is not None, "add_loss is None"
-                    norm_feature_old = l2_norm(feature_old)
-                    norm_feature_new = l2_norm(output["features"])
-                    loss_feat = add_loss(norm_feature_new, norm_feature_old, targets)
-                    # Eq. 3 in the paper
-                    loss = loss * args.lambda_ + (1 - args.lambda_) * loss_feat
-                elif 'bcp' in args.method:
-                    pass
-                else:
-                    raise NotImplementedError(f"Method {args.method} not implemented")
-        
-        # loss.backward()
-        # optimizer.step()
-        scaler.scale(loss).backward()
-        scaler.step(optimizer)
-        scaler.update()
-
-        loss_meter.update(loss.item(), inputs.size(0))
-
-        acc_training = accuracy(logits, labels, topk=(1,))
-        acc_meter.update(acc_training[0].item(), inputs.size(0))
-    
-    # log after epoch
-    lr = optimizer.param_groups[0]['lr']
-    if args.is_main_process:
-        wandb.log({'train/epoch': epoch})
-        wandb.log({'train/train_loss': loss_meter.avg})
-        wandb.log({'train/train_acc': acc_meter.avg})
-        wandb.log({'train/lr': lr})
-
-    end = time.time()
-    log_epoch(args.epochs, loss_meter.avg, acc_meter.avg, epoch=epoch, task=task_id, lr=lr, time=end-start)
-
-def retrieval_acc(args, device, net, previous_net, query_loader, gallery_loader, n_backward_steps=0):
+def retrieval_acc(args, device, net, previous_net, query_loader, gallery_loader, n_backward_steps=0, identical=False):
     net.eval() 
     query_feat, targets = extract_features(
         args,
@@ -287,7 +220,7 @@ def retrieval_acc(args, device, net, previous_net, query_loader, gallery_loader,
 
     acc = identification(gallery_feat, gallery_targets, 
                          query_feat, targets, 
-                         topk=1)
+                         topk=1, identical=identical)
     return acc
 
 

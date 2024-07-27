@@ -20,12 +20,13 @@ increment: 35
 initial_increment: 30
 train_dataset_name: 'cifar_clr'
 batch_size: 512
-lr: 0.003
-momentum: 0.9
-min_lr: 0.00001
-weight_decay: 0.0005
-epochs: 100
+# lr: 0.003
+# momentum: 0.9
+# min_lr: 0.00001
+# weight_decay: 0.0005
+# epochs: 100
+alignment_stragegy: 'post-hoc' # or joint
+bc_loss_type: 'multi-step-mse' # or 'single-step-mse' or 'mse'
 bc_lr: 0.03
 bc_epochs: 100
-bc_loss_type: 'single-step-mse'
-rehearsal: 20
+# rehearsal: 20

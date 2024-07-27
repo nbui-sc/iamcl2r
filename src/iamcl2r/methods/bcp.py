@@ -5,8 +5,7 @@ import torch.nn as nn
 __configs = {
     'name': 'bcp',
     'create_old_model': True,
-    'preallocated_classes': 1024,
-    'mu_': 10,
+    'temperature': 0.07,
 }
 
 
@@ -18,15 +17,15 @@ def CLRBCPconfigs():
     return {
         'name': 'clr_hcp',
         'create_old_model': True,
-        'mu_': 10,
+        'temperature': 0.07,
     }
 
 
 class BCPLoss(nn.Module):
-    def __init__(self, mu_, loss_type='nce', prev_proj_weights=None):
+    def __init__(self, temperature, loss_type='nce', prev_proj_weights=None):
         super(BCPLoss, self).__init__()
         self.loss_type = loss_type
-        self.mu_ = mu_
+        self.temperature = temperature
         self.prev_proj_weights = prev_proj_weights
     
     def forward(self, 
@@ -94,7 +93,7 @@ class BCPLoss(nn.Module):
         ## representations of the same images
         batch_size = feat_old.shape[0]
         diag_mask = torch.eye(batch_size, device=feat_old.device, dtype=torch.bool)
-        sim_01 = torch.einsum("nc,mc->nm", feat_old, feat_new) *  self.mu_
+        sim_01 = torch.einsum("nc,mc->nm", feat_old, feat_new) /  self.temperature
 
         positive_loss = -sim_01[diag_mask]
         # Get the labels of out0 and out1 samples
@@ -103,7 +102,7 @@ class BCPLoss(nn.Module):
 
         # Mask similarities between the same class
         class_mask = labels_0 == labels_1
-        sim_01 = (sim_01* (~class_mask)).view(batch_size, -1)
+        sim_01 = (sim_01 * (~class_mask)).view(batch_size, -1)
 
         negative_loss_01 = torch.logsumexp(sim_01, dim=1)
         return (positive_loss + negative_loss_01).mean()

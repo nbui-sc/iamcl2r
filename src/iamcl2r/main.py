@@ -2,6 +2,7 @@ import os, argparse, yaml, wandb, datetime, logging, random
 import numpy as np
 import os.path as osp
 import torch
+from dotenv import load_dotenv
 import torch.distributed as dist
 import torch.nn as nn
 import torch.optim as optim
@@ -13,7 +14,7 @@ from iamcl2r.methods import set_method_configs, HocLoss
 from iamcl2r.dataset import create_data_and_transforms, BalancedBatchSampler
 from iamcl2r.models import create_model
 from iamcl2r.utils import check_params, save_checkpoint, init_distributed_device, is_master, broadcast_object
-from iamcl2r.train import train_one_epoch, validate
+from iamcl2r.train import train_one_epoch, validate, retrieval_acc
 from iamcl2r.eval import evaluate
 
 
@@ -229,12 +230,22 @@ def main():
                 scheduler_lr.step()
 
                 if (epoch + 1) % args.eval_period == 0 or (epoch + 1) == args.epochs:
-                    acc_val = validate(args,
-                                       device,
-                                       net,
-                                       val_loader,
-                                       criterion_cls,
-                                       target_transform=target_transform)
+                    acc_val = retrieval_acc(
+                        args,
+                        device,
+                        net,
+                        net,
+                        val_loader,
+                        val_loader,
+                        n_backward_steps=0,
+                        identical=True,
+                    )
+                    # acc_val = validate(args,
+                    #                    device,
+                    #                    net,
+                    #                    val_loader,
+                    #                    criterion_cls,
+                    #                    target_transform=target_transform)
                     if args.is_main_process:
                         wandb.log({'val/val_acc': acc_val}) 
                                         
@@ -286,4 +297,5 @@ def main():
     return 0
 
 if __name__ == '__main__':
+    load_dotenv()
     main()

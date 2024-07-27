@@ -75,9 +75,9 @@ def main():
     np.random.seed(args.seed)
     random.seed(args.seed)
 
-    args.replace_ids += [0]    
-    args.replace_ids.sort()     
-    
+    args.replace_ids += [0]
+    args.replace_ids.sort()
+
     set_method_configs(args, name=args.method)
     
     check_params(args)
@@ -94,7 +94,6 @@ def main():
     args.seen_classes = []
 
     if not args.eval_only:
-
         data = create_data_and_transforms(args)
         scenario_train = data["scenario_train"]
         scenario_val = data["scenario_val"]
@@ -170,7 +169,7 @@ def main():
 
             batchsampler = None
             batch_size = args.batch_size
-            if task_id > 0: 
+            if task_id > 0 and args.scenario == 'class-incremental':
                 if args.rehearsal > 0:
                     mem_x, mem_y, mem_t = memory.get()
                     train_task_set.add_samples(mem_x, mem_y, mem_t)

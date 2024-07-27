@@ -1,0 +1,39 @@
+root_folder: ./data
+method: er
+
+# iamcl2r settings
+pretrained_model_path: 
+- null
+- null
+- null
+# - ./pretrained_models_ckpts/learnable/ckpt_0.pt
+# - ./pretrained_models_ckpts/learnable/ckpt_1.pt
+# - ./pretrained_models_ckpts/learnable/ckpt_2.pt
+pretrained_backbones: 
+- resnet18
+- resnet18
+- resnet18
+replace_ids: 
+- 1
+- 2
+
+# checkpoint_path: ./models_ckpts/er_3tasks_arch/run-20240721-0611
+# eval_only: True
+# training settings
+
+scenario: 'instance-incremental'
+nb_tasks: 3
+rehersal: 300
+
+batch_size: 512
+alignment_stragegy: 'post-hoc' # post-hoc or joint
+alignment_loss_type: 'single-step-mse' # 'multi-step-mse' or 'single-step-mse' or 'mse'
+alignment_lr: 0.03
+alignment_epochs: 100
+# backbone_lr: 0.0001
+lr: 0.01
+# grad_clip: 0.01
+# momentum: 0.9
+# min_lr: 0.00001
+# weight_decay: 0.001
+# epochs: 100

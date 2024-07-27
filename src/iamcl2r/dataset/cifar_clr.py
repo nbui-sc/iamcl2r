@@ -5,6 +5,7 @@ from torchvision.transforms import transforms
 
 from continuum.datasets import CIFAR100
 from torchvision.datasets import CIFAR10 as CIFAR10_torch
+from torchvision.datasets import CIFAR100 as CIFAR100_torch
 
 from iamcl2r.dataset.dataset_utils import subsample_dataset
 

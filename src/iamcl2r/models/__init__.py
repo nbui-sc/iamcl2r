@@ -140,7 +140,7 @@ class Incremental_ResNet(nn.Module):
         else:
             return x, y, z
 
-    def bc_forward(self, x, return_dict=True, n_backward_steps=0):
+    def bc_forward(self, x, return_dict=True, return_original=False, n_backward_steps=0):
         return self.forward(x, return_dict=return_dict)
     
     def expand_classifier(self, new_classes):
@@ -192,19 +192,26 @@ class BC_Incremental_ResNet(Incremental_ResNet):
         for i in range(n_backward_vers):
             self.add_bc_projection(require_grad=True, proj_type=proj_type)
 
-    def bc_forward(self, x, return_dict=True, n_backward_steps=0):
+    def bc_forward(self, x, return_dict=True, return_original=True, n_backward_steps=0):
         assert n_backward_steps <= len(self.bc_projs), f"n_backward_steps {n_backward_steps} must be less than or equal to the number of projections {len(self.bc_projs)}"
         x, y, z = self.forward(x, return_dict=False)
+        org_emb = z
+
         if n_backward_steps > 0:
             for i in range(n_backward_steps):
                 z = self.bc_projs[i](z)
 
         if return_dict:
-            return {'backbone_features': x,
+            ret = {'backbone_features': x,
                     'logits': y, 
-                    'features': z
+                    'features': z,
                     }
+            if return_original:
+                ret['original_features'] = org_emb
+            return ret
         else:
+            if return_original:
+                return x, y, z, org_emb
             return x, y, z
 
     def add_bc_projection(self, require_grad=True, proj_type='linear'):

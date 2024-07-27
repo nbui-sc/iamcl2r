@@ -15,17 +15,18 @@ replace_ids:
 - 2
 
 # training settings
-scenario: 'class-incremental'
-increment: 35
-initial_increment: 30
+scenario: 'instance-incremental'
+nb_tasks: 3
+rehersal: 300
 train_dataset_name: 'cifar_clr'
 batch_size: 512
-lr: 0.003
-momentum: 0.9
-min_lr: 0.00001
-weight_decay: 0.0005
-epochs: 100
-bc_lr: 0.03
-bc_epochs: 100
-bc_loss_type: 'nce'
-rehearsal: 20
+# lr: 0.003
+# momentum: 0.9
+# min_lr: 0.00001
+# weight_decay: 0.0005
+# epochs: 100
+alignment_strategy: 'joint' # post-hoc or joint
+alignment_loss_type: 'multi-step-mse' # 'multi-step-mse' or 'single-step-mse' or 'mse'
+alignment_lr: 0.03
+alignment_lambda: 10.
+alignment_epochs: 100

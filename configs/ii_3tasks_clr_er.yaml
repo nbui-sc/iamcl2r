@@ -1,15 +1,23 @@
 root_folder: ./data
-method: hoc
+method: clr_er
 
 # iamcl2r settings
 pretrained_model_path: 
-- ./pretrained_models_ckpts/learnable/ckpt_0.pt
-- ./pretrained_models_ckpts/learnable/ckpt_2.pt
+- null
+- null
+- null
 pretrained_backbones: 
+- resnet18
 - resnet18
 - resnet18
 replace_ids: 
 - 1
+- 2
 
 scenario: 'instance-incremental'
-nb_tasks: 2
+nb_tasks: 3
+rehersal: 300
+
+train_dataset_name: 'cifar_clr'
+batch_size: 512
+

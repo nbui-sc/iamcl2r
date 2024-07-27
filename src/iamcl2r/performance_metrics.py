@@ -10,11 +10,12 @@ import logging
 logger = logging.getLogger('Performance-Metrics')
 
 
-def calculate_mAP_gldv2(ranked_gallery_indices, query_gts, topk):
+def calculate_mAP_gldv2(ranked_gallery_indices, gallery_gts, query_gts, topk):
+    retrieved_labels = np.array(gallery_gts)[ranked_gallery_indices]
     num_q = ranked_gallery_indices.shape[0]
     average_precision = np.zeros(num_q, dtype=float)
     for i in range(num_q):
-        retrieved_indices = np.where(np.in1d(ranked_gallery_indices[i], np.array(query_gts[i])))[0]
+        retrieved_indices = np.where(np.in1d(retrieved_labels[i], np.array(query_gts[i])))[0]
         if retrieved_indices.shape[0] > 0:
             retrieved_indices = np.sort(retrieved_indices)
             gts_all_count = min(len(query_gts[i]), topk)
@@ -23,11 +24,23 @@ def calculate_mAP_gldv2(ranked_gallery_indices, query_gts, topk):
             average_precision[i] /= gts_all_count
     return np.mean(average_precision)
 
+# def calculate_mAP_gldv2(ranked_gallery_indices, query_gts, topk):
+#     num_q = ranked_gallery_indices.shape[0]
+#     average_precision = np.zeros(num_q, dtype=float)
+#     for i in range(num_q):
+#         retrieved_indices = np.where(np.in1d(ranked_gallery_indices[i], np.array(query_gts[i])))[0]
+#         if retrieved_indices.shape[0] > 0:
+#             retrieved_indices = np.sort(retrieved_indices)
+#             gts_all_count = min(len(query_gts[i]), topk)
+#             for j, index in enumerate(retrieved_indices):
+#                 average_precision[i] += (j + 1) * 1.0 / (index + 1)
+#             average_precision[i] /= gts_all_count
+#     return np.mean(average_precision)
+
 
 def image2template_feature(img_feats=None,  # features of all images
                            templates=None,  # target of features in input 
                           ):
-    
     unique_templates = np.unique(templates)
     unique_subjectids = None
 
@@ -44,20 +57,52 @@ def image2template_feature(img_feats=None,  # features of all images
     return template_norm_feats, unique_templates, unique_subjectids
 
 
-def calculate_rank(query_feats, gallery_feats, topk):
+# def calculate_rank(query_feats, gallery_feats, topk):
+#     logger.info(f"query_feats shape: {query_feats.shape}")
+#     logger.info(f"gallery_feats shape: {gallery_feats.shape}")
+#     num_q, feat_dim = query_feats.shape
+
+#     logger.info("=> build faiss index")
+#     # gallery_feats = gallery_feats / np.linalg.norm(gallery_feats, axis=1)[:, np.newaxis]
+#     # query_feats = query_feats / np.linalg.norm(query_feats, axis=1)[:, np.newaxis]
+#     faiss_index = faiss.IndexFlatIP(feat_dim)
+#     # faiss_index = faiss.index_cpu_to_all_gpus(faiss_index)
+#     faiss_index.add(gallery_feats)
+#     logger.info("=> begin faiss search")
+#     _, ranked_gallery_indices = faiss_index.search(query_feats, topk)
+#     return ranked_gallery_indices
+
+def calculate_rank(query_feats, gallery_feats, topk, identical=False):
     logger.info(f"query_feats shape: {query_feats.shape}")
     logger.info(f"gallery_feats shape: {gallery_feats.shape}")
     num_q, feat_dim = query_feats.shape
 
+    gallery_feats = gallery_feats / np.linalg.norm(gallery_feats, axis=1)[:, np.newaxis]
+    query_feats = query_feats / np.linalg.norm(query_feats, axis=1)[:, np.newaxis]
     logger.info("=> build faiss index")
     faiss_index = faiss.IndexFlatIP(feat_dim)
     faiss_index.add(gallery_feats)
     logger.info("=> begin faiss search")
-    _, ranked_gallery_indices = faiss_index.search(query_feats, topk)
+    _, ranked_gallery_indices = faiss_index.search(query_feats, topk + (1 if identical else 0))
+
+    if identical:
+        ranked_gallery_indices = ranked_gallery_indices[:, 1:]
     return ranked_gallery_indices
 
+def calculate_cmc(ranked_gallery_indices, gallery_gts, query_gts):
+    """
+    Calculate Cumulative Martching Characteristics for gallery and query features.
+    """
+    ranked_gallery_indices = ranked_gallery_indices.copy()
+    query_gts = query_gts.copy()
+    retrieved_pred = np.array(gallery_gts)[ranked_gallery_indices]
 
-def identification(gallery_feats, gallery_gts, query_feats, query_gts, topk=1):
+    topk_retrieval = (retrieved_pred == query_gts).sum(axis=1).clip(max=1)
+    acc = np.sum(topk_retrieval) / topk_retrieval.shape[0]
+    return acc
+
+
+def identification(gallery_feats, gallery_gts, query_feats, query_gts, topk=1, identical=False):
     # https://github.com/TencentARC/OpenCompatible/blob/master/data_loader/GLDv2.py#L129
 
     # check if torch, if yes convert to numpy
@@ -71,15 +116,14 @@ def identification(gallery_feats, gallery_gts, query_feats, query_gts, topk=1):
         gallery_gts = gallery_gts.cpu().numpy()
 
     query_gts = np.array(query_gts).reshape(-1, 1)
-    
-    unique_gallery_feats, _, _ = image2template_feature(gallery_feats, 
-                                                        gallery_gts)
-    unique_gallery_feats = unique_gallery_feats.astype(np.float32)
+    gallery_gts = np.array(gallery_gts)
 
     logger.info("=> calculate rank")
-    ranked_gallery_indices = calculate_rank(query_feats, unique_gallery_feats, topk=1)
+    ranked_gallery_indices = calculate_rank(query_feats, gallery_feats, topk=topk, identical=identical)
     logger.info("=> calculate 1:N search acc")
-    mAP = calculate_mAP_gldv2(ranked_gallery_indices, query_gts, topk=1)
+    cmc_acc = calculate_cmc(ranked_gallery_indices, gallery_gts, query_gts)
+
+    mAP = calculate_mAP_gldv2(ranked_gallery_indices, gallery_gts, query_gts, topk=topk)
     logger.info(f"1:N search acc: {mAP:.4f}")
     return mAP
 

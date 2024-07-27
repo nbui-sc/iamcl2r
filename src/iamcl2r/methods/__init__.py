@@ -1,6 +1,7 @@
 import importlib
 from iamcl2r.methods.hoc import HocLoss
 from iamcl2r.methods.bcp import BCPLoss
+from .info_nce import info_nce_loss
 
 
 __factory = {
